@@ -38,7 +38,7 @@ class Highway(nn.Module):
         :return: output tensor, with same dimensions as input tensor
         """
         transformed = nn.functional.relu(self.transform[0](x))  # transform input
-        g = nn.functional.sigmoid(self.gate[0](x))  # calculate how much of the transformed input to keep
+        g = torch.sigmoid(self.gate[0](x))  # calculate how much of the transformed input to keep
 
         out = g * transformed + (1 - g) * x  # combine input and transformed input in this ratio
 
@@ -46,7 +46,7 @@ class Highway(nn.Module):
         for i in range(1, self.num_layers):
             out = self.dropout(out)
             transformed = nn.functional.relu(self.transform[i](out))
-            g = nn.functional.sigmoid(self.gate[i](out))
+            g = torch.sigmoid(self.gate[i](out))
 
             out = g * transformed + (1 - g) * out
 
@@ -130,13 +130,13 @@ class LM_LSTM_CRF(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
 
         self.char_embeds = nn.Embedding(self.charset_size, self.char_emb_dim)  # character embedding layer
-        self.forw_char_lstm = nn.LSTM(self.char_emb_dim, self.char_rnn_dim, num_layers=self.char_rnn_layers,
-                                      bidirectional=False, dropout=dropout)  # forward character LSTM
-        self.back_char_lstm = nn.LSTM(self.char_emb_dim, self.char_rnn_dim, num_layers=self.char_rnn_layers,
-                                      bidirectional=False, dropout=dropout)  # backward character LSTM
+        self.forw_char_lstm = nn.GRU(self.char_emb_dim, self.char_rnn_dim, num_layers=self.char_rnn_layers,
+                                      bidirectional=False)  # forward character LSTM
+        self.back_char_lstm = nn.GRU(self.char_emb_dim, self.char_rnn_dim, num_layers=self.char_rnn_layers,
+                                      bidirectional=False)  # backward character LSTM
 
         self.word_embeds = nn.Embedding(self.wordset_size, self.word_emb_dim)  # word embedding layer
-        self.word_blstm = nn.LSTM(self.word_emb_dim + self.char_rnn_dim * 2, self.word_rnn_dim // 2,
+        self.word_blstm = nn.GRU(self.word_emb_dim + self.char_rnn_dim * 2, self.word_rnn_dim // 2,
                                   num_layers=self.word_rnn_layers, bidirectional=True, dropout=dropout)  # word BLSTM
 
         self.crf = CRF((self.word_rnn_dim // 2) * 2, self.tagset_size)  # conditional random field
@@ -308,7 +308,7 @@ class ViterbiLoss(nn.Module):
             2)  # (batch_size, word_pad_len)
 
         # Everything is already sorted by lengths
-        scores_at_targets, _ = pack_padded_sequence(scores_at_targets, lengths, batch_first=True)
+        scores_at_targets = pack_padded_sequence(scores_at_targets, lengths, batch_first=True)
         gold_score = scores_at_targets.sum()
 
         # All paths' scores

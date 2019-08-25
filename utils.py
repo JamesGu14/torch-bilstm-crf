@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.init
 from torch.nn.utils.rnn import pack_padded_sequence
+from tqdm import tqdm
 
 
 def read_words_tags(file, tag_ind, caseless=True):
@@ -18,13 +19,13 @@ def read_words_tags(file, tag_ind, caseless=True):
     :param caseless: lowercase words?
     :return: word, tag sequences
     """
-    with codecs.open(file, 'r', 'utf-8') as f:
+    with open(file, 'r', encoding='utf-8') as f:
         lines = f.readlines()
     words = []
     tags = []
     temp_w = []
     temp_t = []
-    for line in lines:
+    for line in tqdm(lines):
         if not (line.isspace() or (len(line) > 10 and line[0:10] == '-DOCSTART-')):
             feats = line.rstrip('\n').split()
             temp_w.append(feats[0].lower() if caseless else feats[0])
@@ -227,7 +228,7 @@ def load_embeddings(emb_file, word_map, expand_vocab=True):
 
     # Read embedding file
     print("\nLoading embeddings...")
-    for line in open(emb_file, 'r'):
+    for line in tqdm(open(emb_file, 'r')):
         line = line.split(' ')
 
         emb_word = line[0]

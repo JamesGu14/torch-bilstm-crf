@@ -9,13 +9,14 @@ from torch.nn.utils.rnn import pack_padded_sequence
 from datasets import WCDataset
 from inference import ViterbiDecoder
 from sklearn.metrics import f1_score
+from tqdm import tqdm
 
 # Data parameters
 task = 'ner'  # tagging task, to choose column in CoNLL 2003 dataset
-train_file = './datasets/eng.train'  # path to training data
-val_file = './datasets/eng.testa'  # path to validation data
+train_file = './datasets/dg.train'  # path to training data
+val_file = './datasets/dg.dev'  # path to validation data
 test_file = './datasets/eng.testb'  # path to test data
-emb_file = './embeddings/glove.6B.100d.txt'  # path to pre-trained word embeddings
+emb_file = './embeddings/my_embedding.vec'  # path to pre-trained word embeddings
 min_word_freq = 5  # threshold for word frequency
 min_char_freq = 1  # threshold for character frequency
 caseless = True  # lowercase everything?
@@ -47,6 +48,7 @@ best_f1 = 0.  # F1 score to start with
 checkpoint = None  # path to model checkpoint, None if none
 
 tag_ind = 1 if task == 'pos' else 3  # choose column in CoNLL 2003 dataset
+tag_ind = 1
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -193,14 +195,15 @@ def train(train_loader, model, lm_criterion, crf_criterion, optimizer, epoch, vb
         cmap_lengths = cmap_lengths.to(device)
 
         # Forward prop.
-        crf_scores, lm_f_scores, lm_b_scores, wmaps_sorted, tmaps_sorted, wmap_lengths_sorted, _, __ = model(cmaps_f,
-                                                                                                             cmaps_b,
-                                                                                                             cmarkers_f,
-                                                                                                             cmarkers_b,
-                                                                                                             wmaps,
-                                                                                                             tmaps,
-                                                                                                             wmap_lengths,
-                                                                                                             cmap_lengths)
+        crf_scores, lm_f_scores, lm_b_scores, wmaps_sorted, \
+        tmaps_sorted, wmap_lengths_sorted, _, __ = model(cmaps_f,
+                                                         cmaps_b,
+                                                         cmarkers_f,
+                                                         cmarkers_b,
+                                                         wmaps,
+                                                         tmaps,
+                                                         wmap_lengths,
+                                                         cmap_lengths)
 
         # LM loss
 
@@ -212,19 +215,19 @@ def train(train_loader, model, lm_criterion, crf_criterion, optimizer, epoch, vb
 
         # Remove scores at timesteps we won't predict at
         # pack_padded_sequence is a good trick to do this (see dynamic_rnn.py, where we explore this)
-        lm_f_scores, _ = pack_padded_sequence(lm_f_scores, lm_lengths, batch_first=True)
-        lm_b_scores, _ = pack_padded_sequence(lm_b_scores, lm_lengths, batch_first=True)
+        lm_f_scores = pack_padded_sequence(lm_f_scores, lm_lengths, batch_first=True)
+        lm_b_scores = pack_padded_sequence(lm_b_scores, lm_lengths, batch_first=True)
 
         # For the forward sequence, targets are from the second word onwards, up to <end>
         # (timestep -> target) ...dunston -> checks, ...checks -> in, ...in -> <end>
         lm_f_targets = wmaps_sorted[:, 1:]
-        lm_f_targets, _ = pack_padded_sequence(lm_f_targets, lm_lengths, batch_first=True)
+        lm_f_targets = pack_padded_sequence(lm_f_targets, lm_lengths, batch_first=True)
 
         # For the backward sequence, targets are <end> followed by all words except the last word
         # ...notsnud -> <end>, ...skcehc -> dunston, ...ni -> checks
         lm_b_targets = torch.cat(
             [torch.LongTensor([word_map['<end>']] * wmaps_sorted.size(0)).unsqueeze(1).to(device), wmaps_sorted], dim=1)
-        lm_b_targets, _ = pack_padded_sequence(lm_b_targets, lm_lengths, batch_first=True)
+        lm_b_targets = pack_padded_sequence(lm_b_targets, lm_lengths, batch_first=True)
 
         # Calculate loss
         ce_loss = lm_criterion(lm_f_scores, lm_f_targets) + lm_criterion(lm_b_scores, lm_b_targets)
@@ -244,9 +247,9 @@ def train(train_loader, model, lm_criterion, crf_criterion, optimizer, epoch, vb
         decoded = vb_decoder.decode(crf_scores.to("cpu"), wmap_lengths_sorted.to("cpu"))
 
         # Remove timesteps we won't predict at, and also <end> tags, because to predict them would be cheating
-        decoded, _ = pack_padded_sequence(decoded, lm_lengths, batch_first=True)
+        decoded = pack_padded_sequence(decoded, lm_lengths, batch_first=True)
         tmaps_sorted = tmaps_sorted % vb_decoder.tagset_size  # actual target indices (see create_input_tensors())
-        tmaps_sorted, _ = pack_padded_sequence(tmaps_sorted, lm_lengths, batch_first=True)
+        tmaps_sorted = pack_padded_sequence(tmaps_sorted, lm_lengths, batch_first=True)
 
         # F1
         f1 = f1_score(tmaps_sorted.to("cpu").numpy(), decoded.numpy(), average='macro')
@@ -324,9 +327,9 @@ def validate(val_loader, model, crf_criterion, vb_decoder):
         decoded = vb_decoder.decode(crf_scores.to("cpu"), wmap_lengths_sorted.to("cpu"))
 
         # Remove timesteps we won't predict at, and also <end> tags, because to predict them would be cheating
-        decoded, _ = pack_padded_sequence(decoded, (wmap_lengths_sorted - 1).tolist(), batch_first=True)
+        decoded = pack_padded_sequence(decoded, (wmap_lengths_sorted - 1).tolist(), batch_first=True)
         tmaps_sorted = tmaps_sorted % vb_decoder.tagset_size  # actual target indices (see create_input_tensors())
-        tmaps_sorted, _ = pack_padded_sequence(tmaps_sorted, (wmap_lengths_sorted - 1).tolist(), batch_first=True)
+        tmaps_sorted = pack_padded_sequence(tmaps_sorted, (wmap_lengths_sorted - 1).tolist(), batch_first=True)
 
         # f1
         f1 = f1_score(tmaps_sorted.to("cpu").numpy(), decoded.numpy(), average='macro')
